@@ -1,6 +1,9 @@
 #include "ukf.h"
 #include "Eigen/Dense"
 #include <iostream>
+#include <string>
+#include <sstream>
+
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -9,6 +12,8 @@ using std::vector;
 
 
 #define SMALL_NUMBER 0.001
+#define VERBOSE 0
+
 /**
  * Initializes Unscented Kalman filter
  * This is scaffolding, do not modify
@@ -18,32 +23,32 @@ UKF::UKF() {
   // Set to true only when the initialization is completed.
   is_initialized_ = false;
 
-  // if this is false, laser measurements will be ignored (except during init)
+  // If this is false, laser measurements will be ignored (except during init)
   use_laser_ = true;
 
-  // if this is false, radar measurements will be ignored (except during init)
+  // If this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
 
-  // initial state vector
+  // Initial state vector
   x_ = VectorXd::Zero(5);
 
-  // initial covariance matrix
+  // Initial covariance matrix
   P_ = MatrixXd::Zero(5, 5);
 
   P_ << 1, 0, 0, 0, 0,
         0, 1, 0, 0, 0,
         0, 0, 1, 0, 0,
-        0, 0, 0, 1, 0,
-        0, 0, 0, 0, 1;
+        0, 0, 0, 0.001, 0,
+        0, 0, 0, 0, 0.001;
 
-  // time when the state is true, in us
-  time_us_ = 0; 
+  // Time when the state is true, in us
+  time_us_ = 0.0; 
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 0.7;
+  std_a_ = 1.5;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.3;
+  std_yawdd_ = 0.5;
   
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
   // Laser measurement noise standard deviation position1 in m
@@ -64,15 +69,13 @@ UKF::UKF() {
   
   /**
   TODO:
-
   Complete the initialization. See ukf.h for other member properties.
-
   Hint: one or more values initialized above might be wildly off...
   */
 
   // Set state dimension to 5.
   // These are px, py, speed(v), yaw(psi), yaw_rate(psi')
-  // Refer Lession 8, Section 3 (The CTRV Model State Vector).
+  // Refer Lession 8, Section 3 - The CTRV Model State Vector.
   n_x_ = x_.size();
 
   // Set augmented state demension.
@@ -87,8 +90,10 @@ UKF::UKF() {
   // The  +1 is for the mean value.<F6><F6><F6>
   n_sig_ = 2 * n_aug_ + 1;
 
-  cout << "n_x_ :" << n_x_ << "  n_aug_ :" << n_aug_ << "lambda_ :" << lambda_
-<< "n_sig_ :" << n_sig_ << endl;
+  if ( VERBOSE ) {
+    cout << "n_x_ :" << n_x_ << "  n_aug_ :" << n_aug_ << "lambda_ :" << lambda_
+    << "n_sig_ :" << n_sig_ << endl;
+  }
  
   // Predicted  Sigma points.
   Xsig_pred_ = MatrixXd::Zero( n_x_, n_sig_ );
@@ -126,9 +131,9 @@ UKF::~UKF() {}
  * either radar or laser.
  */
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
+
   /**
   TODO:
-
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
@@ -136,10 +141,12 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   step_++;  
 
   if ( !is_initialized_ ) {
-    
-    // first measurement
-    cout << "UKF::ProcessMeasurement() - First measurement type:" <<
-             meas_package.sensor_type_ << endl;
+  
+    if ( VERBOSE ) {  
+      // first measurement
+      cout << "UKF::ProcessMeasurement() - First measurement type:" <<
+               meas_package.sensor_type_ << endl;
+    }
 
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
 
@@ -156,7 +163,8 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
       float vx = rho_dot * cos(phi);
       float vy = rho_dot * sin(phi);
       float v = sqrt( vx*vx + vy*vy );
-      x_ << px, py, v, 0, 0; 
+      x_ << px, py, 0, 0, 0; 
+      
 
     }
     else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
@@ -176,14 +184,39 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
       }
 
+
     }
 
     time_us_ = meas_package.timestamp_;
 
     // done initializing, no need to predict or update
     is_initialized_ = true;
-    
-    cout << "UKF::ProcessMeasurement() - init done" << endl;
+
+   
+    /**
+     * The following block of code was used to input values for the parameters
+     * std_a_ and std_yawdd. This helped to quickly tune the above 2
+     * parameters to meet the rubric RMSE requirements.
+     * Please ignore this block of code for final evaluation.
+
+    string input ="";
+    double temp_a, temp_yawdd = 0.0; 
+    cout << "Enter value for std_a_ like 1.1" << endl;
+    getline(cin, input);
+    stringstream myA(input);
+    myA >> std_a_;
+    input = "";
+    cout << "Enter value for std_yawdd_ like 2.2" << endl;
+    getline(cin, input);
+    stringstream myYawdd(input);
+    myYawdd >> std_yawdd_;
+    cout << "std_a_ :" << std_a_ << "   std_yawdd_ :" << std_yawdd_ << endl;
+     */
+ 
+    if ( VERBOSE ) {
+      cout << "UKF::ProcessMeasurement() - init done" << endl;
+    }
+
     return;
   }
 
@@ -224,7 +257,9 @@ void UKF::Prediction(double delta_t) {
 
   // Refer Lesson 8;, sections 16, 17, 18 - UKF Augmentation.
 
-  cout << "UKF::Prediction(), delta_t: " << delta_t << endl;
+  if ( VERBOSE ) {
+    cout << "UKF::Prediction(), delta_t: " << delta_t << endl;
+  }
   
   // Augmented mean vector
   VectorXd x_aug = VectorXd(n_aug_);
@@ -235,7 +270,6 @@ void UKF::Prediction(double delta_t) {
   // Sigma point matrix
   MatrixXd Xsig_aug = MatrixXd( n_aug_, n_sig_ );  // n_sig_ = ((2 * n_aug_) + 1 )
 
-  cout << "#1" << endl;
 
   // Create augmented mean state
   x_aug.fill(0.0);
@@ -243,7 +277,6 @@ void UKF::Prediction(double delta_t) {
   x_aug(5) = 0;
   x_aug(6) = 0;
 
-  cout << "#2" << endl;
 
   // Create augmented covariance matrix
   P_aug.fill(0.0);
@@ -252,13 +285,10 @@ void UKF::Prediction(double delta_t) {
   P_aug(6,6) = std_yawdd_*std_yawdd_;
 
 
-  cout << "#3" << endl;
-
   // Create square root of matrix P
   MatrixXd L = P_aug.llt().matrixL();
 
 
-  cout << "#4" << endl;
 
   // Create augmented sigma points
   Xsig_aug.col(0) = x_aug;
@@ -272,7 +302,6 @@ void UKF::Prediction(double delta_t) {
 
   }
  
-  cout << "#5" << endl;
 
   // Predict the sigma points 
   // Refer: Lesson 8, Sections 19, 20, 21 - Sigma Point Prediction.
@@ -334,7 +363,6 @@ void UKF::Prediction(double delta_t) {
   } // end of for loop "Predict the sigma points"
 
 
-  cout << "#6" << endl;
    
   // Refer Lesson 8. Sections 22,23,24: Predicted Mean and Covariance.
 
@@ -344,7 +372,6 @@ void UKF::Prediction(double delta_t) {
     x_ = x_ + weights_(i) * Xsig_pred_.col(i);
   }
 
-  cout << "#7" << endl;
   // Predicted state covariance matrix
   P_.fill(0.0);
   for (int i = 0; i < n_sig_; i++) {  //iterate over sigma points
@@ -360,7 +387,6 @@ void UKF::Prediction(double delta_t) {
     P_ = P_ + weights_(i) * x_diff * x_diff.transpose();
   }
 
-  cout << "#8" << endl;
 
 }
 
@@ -371,14 +397,14 @@ void UKF::Prediction(double delta_t) {
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
   /**
   TODO:
-
   Complete this function! Use lidar data to update the belief about the object's
   position. Modify the state vector, x_, and covariance, P_.
-
   You'll also need to calculate the lidar NIS.
   */
 
-  cout << "UKF::UpdateLidar(), sensor: "  << meas_package.sensor_type_ << endl;
+  if( VERBOSE ) {
+    cout << "UKF::UpdateLidar(), sensor: "  << meas_package.sensor_type_ << endl;
+  }
 
   // Measurement dimension.
   int n_z = 2;
@@ -386,10 +412,8 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   // Create matrix for sigma points in measurement space.
   MatrixXd Zsig = Xsig_pred_.block(0, 0, n_z, n_sig_);
  
-  // Call the UKFUpdate() function that is common to both Radar and Lidar
-  // measurements.
-  UKFUpdate( meas_package, Zsig, n_z);
-    
+  // Call UKFUpdate(), which is common to both Radar and Lidar updates.
+  UKFUpdate( meas_package, Zsig, n_z );
 
 }
 
@@ -398,16 +422,17 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
  * @param {MeasurementPackage} meas_package
  */
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
+
   /**
   TODO:
-
   Complete this function! Use radar data to update the belief about the object's
   position. Modify the state vector, x_, and covariance, P_.
-
   You'll also need to calculate the radar NIS.
   */
-
-  cout << "UKF::UpdateRadar(), sensor: "  << meas_package.sensor_type_  << endl;
+ 
+  if( VERBOSE ) {
+    cout << "UKF::UpdateRadar(), sensor: "  << meas_package.sensor_type_  << endl;
+  }
 
   // Refer Lesson 8, Sections 25, 26, 27: Measurement Prediction.
 
@@ -436,10 +461,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   }
 
-  // Call the UKFUpdate() function that is common to both Radar and Lidar
-  // measurements.
+  // Call UKFUpdate() which is common to both Radar and Lidar updates.
   UKFUpdate( meas_package, Zsig, n_z);
-
 
 }
 
@@ -449,8 +472,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 void UKF::NormalizeAngle( double *angle ) {
 
   while(*angle > M_PI) *angle -= 2. * M_PI;
-  while(*angle < M_PI) *angle += 2. * M_PI; 
-
+  while(*angle < -M_PI) *angle += 2. * M_PI; 
 
 }
 
@@ -458,33 +480,30 @@ void UKF::NormalizeAngle( double *angle ) {
 /**
  ** Updates the state and covariance matrix with the measurements.
  ** This function captures the updates that are applicable to both
- ** Radar and Lidar measurments.
+ ** Radar and Lidar updates.
   */
 void UKF::UKFUpdate(MeasurementPackage meas_package, MatrixXd Zsig, int n_z) {
 
   // Refer Lesson 8, Sections 25, 26, 27 - Measurement Prediction
 
-  //cout << "UKF::UKFUpdate(),  Zsig: " << Zsig << endl;
-  cout << "UKFUpdate(), n_z: " << n_z << endl;
+  if( VERBOSE ) {
+    cout << "UKFUpdate(), n_z: " << n_z << endl;
+  }
+
   // Mean predicted measurement
-  VectorXd z_pred = VectorXd(n_z);
-  z_pred.fill(0.0);
-  for (int i=0; i < n_sig_; i++) {
+  VectorXd z_pred = VectorXd::Zero(n_z);
+  for (int i = 0; i < n_sig_; i++) {
       z_pred = z_pred + weights_(i) * Zsig.col(i);
   }
 
-
   // Innovation covariance matrix S
-  MatrixXd S = MatrixXd(n_z, n_z);
-  S.fill(0.0);
+  MatrixXd S = MatrixXd::Zero(n_z, n_z);
   for (int i = 0; i < n_sig_; i++) {  
 
     //residual
     VectorXd z_diff = Zsig.col(i) - z_pred;
 
     //angle normalization
-    //while (z_diff(1)> M_PI) z_diff(1)-=2.*M_PI;
-    //while (z_diff(1)<-M_PI) z_diff(1)+=2.*M_PI;
     NormalizeAngle(&(z_diff(1)));
 
     S = S + weights_(i) * z_diff * z_diff.transpose();
@@ -506,10 +525,9 @@ void UKF::UKFUpdate(MeasurementPackage meas_package, MatrixXd Zsig, int n_z) {
   // Refer Lesson 8, Sections 28, 29, 30 - UKF Update. 
   
   // Create matrix for cross correlation Tc
-  MatrixXd Tc = MatrixXd(n_x_, n_z);
+  MatrixXd Tc = MatrixXd::Zero(n_x_, n_z);
 
   // Calculate cross correlation matrix
-  Tc.fill(0.0);
   for (int i = 0; i < n_sig_; i++) { 
 
     // Residual
@@ -524,7 +542,9 @@ void UKF::UKFUpdate(MeasurementPackage meas_package, MatrixXd Zsig, int n_z) {
     VectorXd x_diff = Xsig_pred_.col(i) - x_;
 
     // Angle normalization
-    NormalizeAngle(&(x_diff(3)));
+    if( meas_package.sensor_type_ == MeasurementPackage::RADAR ) {
+        NormalizeAngle(&(x_diff(3)));
+    }
 
     Tc = Tc + weights_(i) * x_diff * z_diff.transpose();
 
@@ -550,16 +570,26 @@ void UKF::UKFUpdate(MeasurementPackage meas_package, MatrixXd Zsig, int n_z) {
   P_ = P_ - K * S * K.transpose();
 
 
-  // Calculate NIS
+
+  // Calculate NIS. Log NIS, x_ and P_
 
   if( meas_package.sensor_type_ == MeasurementPackage::RADAR ) {
     nis_radar_ = z_diff.transpose() * S.inverse() * z_diff;
-    cout << "Step: " << step_ << "   nis_radar: " << nis_radar_ << endl;
-    
+    if ( VERBOSE ) {
+      cout << "Step: " << step_ << "   nis_radar: " << nis_radar_ << endl;
+      cout << "px:" << x_(0) << "  py:" << x_(1) << "  v:" << x_(2) << "  psi:"
+              << x_(3) << "  psidot:" << x_(4)  << endl;
+      cout << P_ << endl;
+    }
   }
   else if( meas_package.sensor_type_ == MeasurementPackage::LASER ) {
     nis_laser_ = z_diff.transpose() * S.inverse() * z_diff;
-    cout << "Step: " << step_ << "   nis_laser: " << nis_laser_ << endl;
+    if ( VERBOSE ) {
+      cout << "Step: " << step_ << "   nis_laser: " << nis_laser_ << endl;
+      cout << "px:" << x_(0) << "  py:" << x_(1) << "  v:" << x_(2) << "  psi:"            
+              << x_(3) << "  psidot:" << x_(4)  << endl;
+      cout << P_ << endl;
+    }
   }
 
 } // end of function UKF::UKFUpdate()
